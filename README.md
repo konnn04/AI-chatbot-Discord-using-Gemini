@@ -26,7 +26,8 @@ Bot này được thiết kế để tương tác với người dùng trên Dis
     ```
 
 ## Cấu hình Bot
-Tạo một file `.env` trong thư mục gốc từ `.env-template` và điền các thông tin cần thiết
+1. Tạo một file `.env` trong thư mục gốc từ `.env-template` và điền các thông tin cần thiết
+2. Tạo một file là `data.csv` trong thư mục `src/data` từ `data-template.csv` và điền các dữ liệu cần thiết để huấn luyện mô hình AI
 
 ## Tạo Bot trên Discord
 1. Truy cập [Discord Developer Portal](https://discord.com/developers/applications).
@@ -40,7 +41,7 @@ Tạo một file `.env` trong thư mục gốc từ `.env-template` và điền 
     ```
 
 ## Lấy API Key của Gemini từ AI Studio
-1. Truy cập [AI Studio của Google](https://aistudio.google.com).
+1. Truy cập [AI Studio của Google](https://aistudio.google.com). 
 2. Đăng nhập bằng tài khoản Google của bạn.
 3. Tạo một dự án mới hoặc chọn một dự án hiện có.
 4. Truy cập phần "API & Services" và tạo một API key.
