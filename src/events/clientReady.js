@@ -1,9 +1,16 @@
-const { Client, Events, GatewayIntentBits } = require('discord.js');
+const { Client, Events, GatewayIntentBits, ActivityType } = require('discord.js');
 
 module.exports = {
 	name: Events.ClientReady,	
 	async execute(readyClient) {
         console.log(`Logged in as ${readyClient.user.tag}!`);
+        
+        readyClient.user.setPresence({
+            activities:[{
+            name: `Zzz`,type: ActivityType.Listening
+            }],
+            status:"idle"
+        })	
     }
 }
 

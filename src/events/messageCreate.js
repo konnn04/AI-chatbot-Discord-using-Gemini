@@ -1,42 +1,53 @@
 const { Client, Events, Collection } = require('discord.js');
-const {aiChat, addRecentMessage, addRecentAttachments } = require("../plugin/ai_chat");
+const {aiChat, addRecentMessage, addRecentAttachments, checkSessionChat } = require("../plugin/ai_chat");
+
+const { sendDebug } = require("../plugin/debug");
 
 module.exports = {
 	name: Events.MessageCreate,	
 	async execute(message) {
 		if (message.author.bot) return;
+		await checkSessionChat(message.guild.id);
 		const myTagName = `<@${message.client.user.id}>`;
-		console.log(message.content);
+		// console.log(message.content);
+		const guildId = message.guild.id;
 		const messageContent = message.content.trim();
-
 		const promtMessage = processMessage(message)
 		const name = message.member.displayName;
 		const channel = message.guild.name + ' | ' + message.channel.name;
 
-		if (messageContent.length > 0) {
-			addRecentMessage(messageContent, name, channel , 'user');
-		}
 		// Lấy mảng các attachment từ message gần nhất
 		// console.log(message.attachments);
-		const attachments = Array.from(message.attachments.values());
+		const attachments = Array.from(await message.attachments.values());
 		// Nếu có attachment thì lưu vào mảng recentMessages
 		if (attachments.length > 0) {
-			addRecentAttachments(attachments, name, channel);
+			await addRecentAttachments(guildId, attachments, name, channel);
 			console.log(`Recieved ${attachments.length} attachments`);
 		}
 
 		if (messageContent.includes(myTagName) && messageContent.length > myTagName.length) {
-			aiChat(promtMessage, name, channel).then((result) => {
+			await aiChat(guildId,promtMessage, name, channel).then((result) => {
 				for (let i = 0; i < result.contents.length; i++) {
-					if (i === 0) {
-						message.reply(result.contents[i]);
-					}else{
-						message.channel.send(result.contents[i]);
+					try {
+						if (i === 0) {
+							message.reply(result.contents[i]);
+						}else{
+							message.channel.send(result.contents[i]);
+						}
+					} catch (error) {
+						console.log(error);
+						sendDebug(message.client, error);						
 					}
 				}
 			}).catch((error) => {
 				console.log(error);
+				sendDebug(message.client, error);
+				message.reply("Em đang bị lỗi ạ, gọi Konnn-sensei giúp em với ạ!");
 			});
+		}else{
+			if (messageContent.length > 0) {
+				await addRecentMessage(guildId, promtMessage, name, channel , 'user');
+			}
 		}
     }
 }

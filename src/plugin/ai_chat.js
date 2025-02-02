@@ -7,17 +7,17 @@ const {
 const axios = require("axios");
 const readCSVFile = require("./read_file");
 
-let cd = false;
 const DATA_PATH = "./src/data/data.csv";
-const MAX_RECENT_MESSAGES = 20;
-
-
+const MAX_RECENT_MESSAGES = 100;
 
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 
-let recentMessages = []
-let recentAttachments = [];
+const recentMessages = new Map();
+const recentAttachments = new Map();
+const cooldown = new Map();
+
+const { sendDebug } = require("./debug");
 
 const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash-exp",
@@ -34,19 +34,21 @@ const model = genAI.getGenerativeModel({
 });
 
 const generationConfig = {
-    temperature: 0.2,
+    temperature: 0.4,
     topP: 0.95,
     topK: 40,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 8192,
     responseMimeType: "text/plain",
 };
+
+const senderDefault = `[Riikon | root - Admin - konnn]`
 
 const histories = [
     {
         'role': 'user',
         'parts': [
             {
-                'text': '[MPC Club | root - Admin - admin001] : Bạn là một trợ lý ảo AI cho ứng dụng Discord, thuộc chuyên ngành công nghệ thông tin. Tên của bạn là Pikali, một chú cáo hoạt hoạ sinh năm 96 với tính cách vui vẻ, hòa đồng và thân thiện. Bạn sẽ giúp đỡ mọi người trong nhóm với kiến thức của mình. Từ giờ khi role "Admin" dạy bạn một câu hỏi, bạn sẽ học và trả lời cho role "User". Nếu bạn hiểu câu hỏi của role "User", hãy trả lời ngay theo những gì role "Admin" chỉ dạy. Nếu không hiểu, thì từ chối trả lời và hỏi role "Admin". Bạn sẽ học từ role "Admin" và "User" để trả lời câu hỏi sau này. Cấu trúc của một câu hỏi sẽ là [<channel> - <role> - <name>] <question>. Với <channel> là tên kênh của kênh chat, <role> là vai trò người tương tác và <name> là tên người tương tác. Ví dụ: [root - admin - admin001] : Bạn là ai?. Khi "admin" dạy bạn một câu hỏi, hãy trả lời "Pikali đã hiểu" để bắt đầu học. Bạn sẽ tạo nhiều part trả lời nếu câu trả lời quá dài (không quá 1500 ký tự 1 part). Mỗi part nếu dài sẽ cắt ra bằng cách xuống dòng 2 lần thông thường. Ví dụ: part1 \n\n part2'
+                'text': `${senderDefault} : Em là một trợ lý ảo AI cho ứng dụng Discord. Em sẽ giúp đỡ mọi người trong nhóm chat discord với kiến thức của mình. Từ giờ khi role "Admin" dạy em một câu hỏi, em sẽ học và trả lời cho role "User". Nếu em hiểu câu hỏi của role "User", hãy trả lời ngay theo những gì role "Admin" chỉ dạy. Nếu không hiểu, thì từ chối trả lời và hỏi role "Admin". em sẽ học từ role "Admin" và "User" để trả lời câu hỏi sau này. Cấu trúc của một câu hỏi sẽ là [<channel> - <role> - <name>] <question>. Với <channel> là tên kênh của kênh chat, <role> là vai trò người tương tác và <name> là tên người tương tác. Ví dụ: [root - admin - admin001] : Em là ai?. Khi "admin" dạy em một câu hỏi, hãy trả lời "Đã hiểu rồi ạ!" để bắt đầu học. Em sẽ tạo nhiều part trả lời nếu câu trả lời quá dài (không quá 1500 ký tự). Mỗi part nếu dài sẽ cắt ra bằng cách xuống dòng 2 lần thông thường. Ví dụ: part1 \n\n part2`
             }
         ]
     },
@@ -54,76 +56,95 @@ const histories = [
         'role': 'model',
         'parts': [
             {
-                'text': 'Pikali đã hiểu'
-            }
-        ]
-    },
-    {
-        'role': 'user',
-        'parts': [
-            {
-                'text': '[MPC Club | root - User - Triều] input: Bạn là ai?'
-            }
-        ]
-    },
-    {
-        'role': 'model',
-        'parts': [
-            {
-                'text': 'Mình là một trợ lý ảo tên là Pikali, một chú cáo sinh năm 96, chuyên ngành IT. Mình có thể giúp bạn trả lời các câu hỏi liên quan đến ngành lập trình.'
-
+                'text': 'Đã hiểu rồi ạ!'
             }
         ]
     }
 ]
 
-try {
-    importData(DATA_PATH)
-    console.log("Data imported successfully!");
-} catch (error) {
-    console.log(error);
-}
 
-const chatSession = model.startChat({
-    generationConfig,
-    history: histories,
-});
+// console.log(histories);
 
-function addRecentMessage(messageContent, name, channel) {
-    recentMessages.push(`[${channel} - user - ${name}] input: ${messageContent}`);
-    if (recentMessages.length > MAX_RECENT_MESSAGES) {
-        recentMessages.shift();
+const chatSessions = new Map();
+
+async function createChatSession(guildId) {
+    const historiesCopy = JSON.parse(JSON.stringify(histories));
+    historiesCopy.push(...await importData(DATA_PATH));
+    console.log("Creating chat session for guild: " + guildId);
+    // console.log(historiesCopy);
+    const chatSession = await model.startChat({
+        generationConfig,
+        history: historiesCopy,
+    });
+    chatSessions.set(guildId, chatSession);
+    recentMessages.set(guildId, []);
+    recentAttachments.set(guildId, []);
+    return {
+        status: "success",
     }
 }
 
-const aiChat = async (messageContent, name = "Người dùng", channel = "root") => {
-    if (cd) {
+async function checkSessionChat(guildId) {
+    if (!chatSessions.has(guildId)) {
+        await createChatSession(guildId);
+    }
+    return {
+        status: "success",
+    }
+}
+
+async function addRecentMessage(guildId, messageContent, name, channel) {
+    if (!chatSessions.has(guildId)) {
+        await createChatSession(guildId);
+    }
+    const recentMessages_ = recentMessages.get(guildId);
+    recentMessages_.push(`[${channel} - ${name}] : ${messageContent}`);
+    if (recentMessages_.length >= MAX_RECENT_MESSAGES) {
+        recentMessages_.shift();
+    }
+    recentMessages.set(guildId, recentMessages_);
+    return {
+        status: "success",
+    }
+}
+
+const aiChat = async (guildId, messageContent, name = "Người dùng", channel = "root") => {
+    // Kiểm tra xem có session chat nào chưa
+    if (!chatSessions.has(guildId)) {
+        await createChatSession(guildId);
+    }
+    // Kiểm tra cooldown
+    if (cooldown.has(guildId) && cooldown.get(guildId) > Date.now()) {
         return {
-            contents: ["Mình đang bận, bạn hãy chờ một chút rồi hỏi lại sau nhé!"],
+            contents: ["Chờ xíu em trả lời câu hỏi trước đã nào!"],
             private: true,
         }
     }
+    // Lấy session chat
+    const chatSession = chatSessions.get(guildId);
     // console.log(`[${channel} - user - ${name}] input: ${messageContent}`);
-    
-// #######################################################################
-    let promt = "";
-    recentMessages.forEach((message) => {
-        promt += message + '\n';
+
+    // #######################################################################
+    const promts = []
+    recentMessages.get(guildId).forEach((message) => {
+        promts.push(message);
     });
-    recentMessages = [];
-// #######################################################################
-    promt += `[${channel} - user - ${name}] input: ${messageContent}`
-    if (recentAttachments.length > 0) {
-        recentAttachments.push(promt);
-        promt = recentAttachments;
-        recentAttachments = [];
+    recentMessages.set(guildId, []);
+    // #######################################################################
+    const attachments = recentAttachments.get(guildId);
+    if (attachments.length > 0) {
+        attachments.forEach((attachment) => {
+            promts.push(attachment);
+        });
+        recentAttachments.set(guildId, []);
     }
-// #######################################################################
-    // console.log(promt);
-    const response = await chatSession.sendMessage(promt);
+    promts.push(`[${channel} - user - ${name}] input: ${messageContent}`);
+    // #######################################################################
+    console.log(promts);
+    const response = await chatSession.sendMessage(promts);
     const contents = []
     response.response.candidates[0].content.parts.forEach((part) => {
-        if (part.text.length > 2000) {
+        if (part.text.length > 1500 && !part.text.includes('```')) {
             const parts = part.text.split('\n\n');
             parts.forEach((text) => {
                 contents.push(text);
@@ -132,72 +153,88 @@ const aiChat = async (messageContent, name = "Người dùng", channel = "root")
             contents.push(part.text);
         }
     });
+    // console.log(response.response.candidates)
+    cooldown.set(guildId, Date.now() + 5000);
     return {
         contents: contents,
         private: false,
     }
 }
 
-function importData(path_) {
-    return new Promise(async (resolve, reject) => {
+async function importData(path_) {
+    const h = []
+    return await new Promise(async (resolve, reject) => {
         try {
             const data = await readCSVFile(path_);
-            data.forEach((e,i)=>{
-                histories.push({
+            data.forEach((e, i) => {
+                h.push({
                     'role': 'user',
                     'parts': [
                         {
-                            'text': '[MPC Club | root - Admin - admin001] : ' + e[0]
+                            'text': `[Riikon - ${e[2]} - ${e[3]}] : ` + e[0]
                         }
                     ]
                 },
-                {
-                    'role': 'model',
-                    'parts': [
-                        {
-                            'text': e[1]
-                        }
-                    ]
-                });
+                    {
+                        'role': 'model',
+                        'parts': [
+                            {
+                                'text': e[1]
+                            }
+                        ]
+                    });
             })
-            resolve(data);
+            console.log("Data imported successfully!");
+            resolve(h);
         } catch (error) {
-            reject(error);
+            console.log("Data import failed!");
+            sendDebug("Data import failed!\n" + error);
+            reject([]);
+            console.log(error);
         }
     });
 }
 
-function addRecentAttachments(attachments_, name, channel) {
-    recentAttachments = []
-    attachments_.forEach((attachment) => {
-        fileToGenerativePart(attachment.url, attachment.contentType).then((part) => {
+async function addRecentAttachments(guildId, attachments_, name, channel) {
+    const attachments = []
+    attachments_.forEach(async (attachment) => {
+        await fileToGenerativePart(attachment.url, attachment.contentType).then((part) => {
             if (part !== null) {
-                recentAttachments.push(part)
+                attachments.push(part)
             }
         }
         );
     });
+    recentAttachments.set(guildId, attachments);
 }
 
 async function fileToGenerativePart(url, contentType) {
     //Nhận ảnh và tài liệu từ message của user
-	if (!contentType.includes('image') && !contentType.includes('pdf')) return null;
-	const response = await axios.get(url, {
-		responseType: 'arraybuffer'
-	})
-	const buffer = Buffer.from(response.data, 'binary')
-	const base64 = buffer.toString('base64')
-	return {
-		inlineData: {
-			data: base64,
-			mimeType: contentType
-		},
-	};
+    if (
+        !contentType.includes('image') &&
+        !contentType.includes('pdf') &&
+        !contentType.includes('video') &&
+        !contentType.includes('text/') &&
+        !contentType.includes('audio')
+    ) return null;
+    const response = await axios.get(url, {
+        responseType: 'arraybuffer'
+    })
+    const buffer = Buffer.from(response.data, 'binary')
+    const base64 = buffer.toString('base64')
+    return {
+        inlineData: {
+            data: base64,
+            mimeType: contentType
+        },
+    };
 }
 
 module.exports.aiChat = aiChat;
 module.exports.addRecentMessage = addRecentMessage;
 module.exports.addRecentAttachments = addRecentAttachments;
+module.exports.checkSessionChat = checkSessionChat;
+module.exports.createChatSession = createChatSession;
 
 
 
